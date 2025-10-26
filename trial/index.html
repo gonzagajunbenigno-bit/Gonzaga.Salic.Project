@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Virtual Pet</title>
+    <style>
+        body { font-family: Arial, sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; background:#f0f8ff; margin:0; }
+        .card { background:#fff; padding:20px; border-radius:12px; box-shadow:0 6px 18px rgba(0,0,0,.08); width:360px; text-align:center; }
+        img.pet { width:220px; height:220px; object-fit:cover; border-radius:12px; transition:transform .25s ease; }
+        img.pet.petted { transform:scale(1.05) rotate(-6deg); }
+        img.pet.fed { transform:scale(1.08) rotate(6deg); }
+        .bars { margin:12px 0; text-align:left; }
+        .bar { background:#eee; height:12px; border-radius:8px; overflow:hidden; margin:8px 0; }
+        .fill { height:100%; background:linear-gradient(90deg,#ffcc00,#ff8c00); width:50%; transition:width .3s ease; }
+        .fill.happiness { background:linear-gradient(90deg,#7be495,#35c36d); }
+        .controls { display:flex; gap:10px; justify-content:center; margin-top:12px; }
+        button { padding:10px 16px; border-radius:8px; border: none; cursor:pointer; font-weight:600; }
+        button:active { transform:translateY(1px); }
+        .feed { background:#ffcc66; }
+        .pet-btn { background:#8bd3ff; }
+        .status { font-size:13px; color:#666; margin-top:8px; }
+        .hint { font-size:12px; color:#999; margin-top:6px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Your Virtual Pet</h2>
+        <!-- Put the image file in the same folder as this HTML (or update the src below) -->
+        <img id="petImg" class="pet" src="https://scontent.fceb1-4.fna.fbcdn.net/v/t39.30808-1/571204072_122154775916743385_6684959427198048653_n.jpg?stp=dst-jpg_s200x200_tt6&_nc_cat=107&ccb=1-7&_nc_sid=e99d92&_nc_eui2=AeHSOPabSgfXo1mpl10fkJkCaFPmC6f6Rs1oU-YLp_pGzVorI-ScF3BRnBAZ4nTAX8pBsQNWlpGE89BslOPZTE01&_nc_ohc=lJ3T9g9FvyoQ7kNvwHdsnV3&_nc_oc=Adlf4u7Q5x_IonEXLqHifvNn-Vr0PCDy-gVktraqwrKbuUJx-kIeNpmOPtGlvzyRXnI&_nc_zt=24&_nc_ht=scontent.fceb1-4.fna&_nc_gid=htk8Q-cmgYOLqbei9QI2GQ&oh=00_Afe7FxSU6PlDmvJPDBSGfZhPYwpumf7nO42IKNkg9iIVZA&oe=69035F6A" alt="pet" />
+        
+        <!-- Add YouTube container -->
+        <div id="youtubeContainer" style="display:none; margin-top:15px;">
+            <iframe width="320" height="180" 
+                    src="https://www.youtube.com/embed/JAtI-svbLGE?enablejsapi=1" 
+                    frameborder="0" 
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                    allowfullscreen>
+            </iframe>
+        </div>
+
+        <div class="bars">
+            <div>Hunger <span id="hungerPct" style="float:right">--%</span></div>
+            <div class="bar"><div id="hungerFill" class="fill" style="width:0%"></div></div>
+
+            <div>Happiness <span id="happyPct" style="float:right">--%</span></div>
+            <div class="bar"><div id="happyFill" class="fill happiness" style="width:0%"></div></div>
+        </div>
+
+        <div class="controls">
+            <button id="feedBtn" class="feed">Feed</button>
+            <button id="petBtn" class="pet-btn">Pet</button>
+            <button id="walkBtn" class="pet-btn" style="background:#c6e6a8">Walk</button>
+        </div>
+
+        <div class="status" id="message">Welcome! Feed and pet your buddy.</div>
+        <div class="hint">Tip: state persists. Hunger drops over time.</div>
+    </div>
+
+    <script>
+        // Simple virtual pet logic
+        const DEFAULT = { hunger: 70, happiness: 50, lastTick: Date.now() };
+        const STORAGE_KEY = 'virtual_pet_state_v1';
+
+        const petImg = document.getElementById('petImg');
+        const hungerFill = document.getElementById('hungerFill');
+        const happyFill = document.getElementById('happyFill');
+        const hungerPct = document.getElementById('hungerPct');
+        const happyPct = document.getElementById('happyPct');
+        const feedBtn = document.getElementById('feedBtn');
+        const petBtn = document.getElementById('petBtn');
+        const walkBtn = document.getElementById('walkBtn');
+        const message = document.getElementById('message');
+
+        let state = loadState();
+        let cooldowns = {
+            feed: 0,
+            pet: 0,
+            walk: 0
+        };
+
+        function loadState() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    // apply decay since lastTick
+                    const now = Date.now();
+                    const minutes = Math.floor((now - (parsed.lastTick||now)) / 60000);
+                    if (minutes > 0) {
+                        parsed.hunger = Math.max(0, parsed.hunger - minutes * 2); // gets hungrier over time
+                        parsed.happiness = Math.max(0, parsed.happiness - minutes * 1);
+                        parsed.lastTick = now;
+                    }
+                    return parsed;
+                }
+            } catch(e){}
+            return {...DEFAULT};
+        }
+
+        function saveState() {
+            state.lastTick = Date.now();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        }
+
+        function render() {
+            hungerFill.style.width = state.hunger + '%';
+            happyFill.style.width = state.happiness + '%';
+            hungerPct.textContent = Math.round(state.hunger) + '%';
+            happyPct.textContent = Math.round(state.happiness) + '%';
+
+            // change message and subtle image effects
+            if (state.hunger < 25) {
+                message.textContent = "I'm hungry... please feed me.";
+                petImg.style.filter = 'grayscale(.25) saturate(.9)';
+            } else if (state.happiness < 30) {
+                message.textContent = "Feeling lonely. Pet me!";
+                petImg.style.filter = 'brightness(.92)';
+            } else {
+                message.textContent = "I'm happy! Thanks for caring.";
+                petImg.style.filter = '';
+            }
+
+            // disable walk if too hungry
+            if (walkBtn) {
+                walkBtn.disabled = state.hunger <= 8;
+                walkBtn.title = state.hunger <= 8 ? 'Too hungry to walk' : 'Take a short walk';
+            }
+
+            checkMaxStats();
+        }
+
+        function clamp(v){ return Math.max(0, Math.min(100, v)); }
+
+        // shout when completely out of hunger — throttle so it doesn't spam
+        function maybeShoutIfStarving() {
+            if (state.hunger <= 0) {
+                const now = Date.now();
+                const last = state.lastHungerShout || 0;
+                if (now - last > 60000) { // at most once per minute
+                    state.lastHungerShout = now;
+                    saveState();
+                    // UI message
+                    message.textContent = 'YAWA GI GUTOM KO';
+                    // play deep loud shout if speech available
+                    if (speechEnabled) speak('Yawa gi gutom ko', { pitch: 0.22, rate: 1.0, volume: 1 });
+                    // small visual cue
+                    petImg.classList.remove('petted','fed');
+                    void petImg.offsetWidth;
+                    petImg.classList.add('petted');
+                    setTimeout(()=> { petImg.classList.remove('petted'); render(); }, 1400);
+                }
+            }
+        }
+
+        function checkMaxStats() {
+            if (state.hunger >= 100 && state.happiness >= 100) {
+                const container = document.getElementById('youtubeContainer');
+                if (container && container.style.display === 'none') {
+                    container.style.display = 'block';
+                    message.textContent = 'Maximum power achieved! 🎉';
+                }
+            } else {
+                const container = document.getElementById('youtubeContainer');
+                if (container) {
+                    container.style.display = 'none';
+                }
+            }
+        }
+
+        function isOnCooldown(action) {
+            const now = Date.now();
+            const cooldownTime = cooldowns[action];
+            const remaining = Math.max(0, cooldownTime - now);
+            return remaining > 0;
+        }
+
+        feedBtn.addEventListener('click', () => {
+            if (isOnCooldown('feed')) {
+                message.textContent = `Wait ${Math.ceil((cooldowns.feed - Date.now()) / 1000)}s to feed again`;
+                return;
+            }
+            cooldowns.feed = Date.now() + 2000; // 2 second cooldown
+            state.hunger = clamp(state.hunger + 25);
+            state.happiness = clamp(state.happiness + 8);
+            animate('fed', 'Yum! That was tasty.');
+            saveState(); 
+            render();
+            
+            // Disable button visually
+            feedBtn.disabled = true;
+            setTimeout(() => {
+                feedBtn.disabled = false;
+            }, 2000);
+        });
+
+        petBtn.addEventListener('click', () => {
+            if (isOnCooldown('pet')) {
+                message.textContent = `Wait ${Math.ceil((cooldowns.pet - Date.now()) / 1000)}s to pet again`;
+                return;
+            }
+            cooldowns.pet = Date.now() + 2000; // 2 second cooldown
+            state.happiness = clamp(state.happiness + 18);
+            state.hunger = clamp(state.hunger - 2);
+            animate('petted', 'Purr... thank you!');
+            saveState(); 
+            render();
+            
+            // Disable button visually
+            petBtn.disabled = true;
+            setTimeout(() => {
+                petBtn.disabled = false;
+            }, 2000);
+        });
+
+        // little walk action
+        if (walkBtn) {
+            walkBtn.addEventListener('click', () => {
+                if (isOnCooldown('walk')) {
+                    message.textContent = `Wait ${Math.ceil((cooldowns.walk - Date.now()) / 1000)}s to walk again`;
+                    return;
+                }
+                if (state.hunger <= 8) {
+                    message.textContent = "I'm too hungry to walk.";
+                    return;
+                }
+                cooldowns.walk = Date.now() + 2000; // 2 second cooldown
+                
+                // apply walk effects
+                state.hunger = clamp(state.hunger - 7);
+                state.happiness = clamp(state.happiness + 12);
+                
+                // animate walking
+                petImg.classList.remove('petted','fed','walking');
+                void petImg.offsetWidth;
+                petImg.classList.add('walking');
+                message.textContent = 'Nice little walk!';
+                
+                // temporarily disable controls
+                feedBtn.disabled = true;
+                petBtn.disabled = true;
+                walkBtn.disabled = true;
+                
+                setTimeout(() => {
+                    petImg.classList.remove('walking');
+                    feedBtn.disabled = false;
+                    petBtn.disabled = false;
+                    walkBtn.disabled = false;
+                    saveState(); 
+                    render();
+                }, 1800);
+                
+                saveState(); 
+                render();
+            });
+        }
+
+        function animate(cls, msg) {
+            petImg.classList.remove('petted','fed');
+            // force reflow to restart animation
+            void petImg.offsetWidth;
+            petImg.classList.add(cls);
+            message.textContent = msg;
+            setTimeout(()=> {
+                petImg.classList.remove(cls);
+                render();
+            }, 800);
+        }
+
+        // walking CSS keyframes (inserted via JS so single-file remains simple)
+        (function insertWalkStyle(){
+            const css = `.pet.walking{ animation: walk-steps 1.6s ease; } @keyframes walk-steps{ 0%{ transform:translateX(0) } 20%{ transform:translateX(18px) } 40%{ transform:translateX(-12px) } 60%{ transform:translateX(14px) } 80%{ transform:translateX(-6px) } 100%{ transform:translateX(0) } }`;
+            const s = document.createElement('style'); s.textContent = css; document.head.appendChild(s);
+        })();
+
+        // -- speech (says "Pakkyu" every 20s with a deep voice) --
+        let speechEnabled = false;
+        let preferredVoice = null;
+
+        function loadVoices() {
+            return new Promise(resolve => {
+                const v = speechSynthesis.getVoices();
+                if (v.length) return resolve(v);
+                speechSynthesis.onvoiceschanged = () => resolve(speechSynthesis.getVoices());
+            });
+        }
+
+        async function initSpeech() {
+            if (speechEnabled) return;
+            const voices = await loadVoices().catch(()=>[]);
+            // prefer an English voice; try to pick a "male" sounding name if available
+            preferredVoice = (voices || []).find(v => v.lang && v.lang.startsWith('en') && /male/i.test(v.name))
+                            || (voices || []).find(v => v.lang && v.lang.startsWith('en'))
+                            || (voices || [])[0] || null;
+            // mark enabled; actual speaking may still be blocked by browser until user interacts
+            speechEnabled = true;
+            // do an initial short utterance to satisfy gesture policies when initSpeech is called by a user action
+            try { speak(''); } catch(e){}
+        }
+
+        function speak(text, opts = {}) {
+            if (!speechEnabled) return;
+            const { pitch = 0.45, rate = 0.9, volume = 1 } = opts;
+            const u = new SpeechSynthesisUtterance(text);
+            if (preferredVoice) u.voice = preferredVoice;
+            u.pitch = pitch;
+            u.rate = rate;
+            u.volume = volume;
+            // cancel any previous short utterance and speak
+            speechSynthesis.cancel();
+            speechSynthesis.speak(u);
+        }
+
+        // enable speech on first user interaction (required by many browsers)
+        const enableSpeechOnce = () => { initSpeech(); document.removeEventListener('click', enableSpeechOnce); };
+        document.addEventListener('click', enableSpeechOnce);
+
+        // schedule "Pakkyu" every 20 seconds
+        setInterval(() => {
+            // ensure speech has been initialized (won't speak until user interacted)
+            if (!speechEnabled) return;
+            speak('Pakkyu', { pitch: 0.35, rate: 0.95, volume: 1 });
+            // show a brief message in UI
+            message.textContent = 'Pakkyu';
+            setTimeout(render, 1200);
+        }, 20000);
+
+        // passive decay every 30 seconds
+        setInterval(() => {
+            state.hunger = clamp(state.hunger - 1);
+            state.happiness = clamp(state.happiness - 0.4);
+            saveState(); render();
+            maybeShoutIfStarving();
+        }, 30000);
+
+        // initial render
+        render();
+
+        // keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'f' || e.key === 'F') feedBtn.click();
+            if (e.key === 'p' || e.key === 'P') petBtn.click();
+            if (e.key === 'w' || e.key === 'W') walkBtn && walkBtn.click();
+        });
+    </script>
+</body>
+</html>
